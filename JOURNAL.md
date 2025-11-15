@@ -40,3 +40,22 @@
 
 **Next Step:**
 * Implement Phase 2 (Single-Workgroup Reduction) using this new manual-compile workflow.
+
+## 2025-11-15: Phase 2 - Local Reduction (v2.0)
+**Tag:** `v2.0-phase2-local-reduce`
+**Branch:** `feat/2-local-reduce`
+
+**Status:** Completed.
+
+**What I did:**
+* Wrote `local_reduce.comp` using `shared` memory and `barrier()` for an in-workgroup parallel sum.
+* Manually compiled it to `local_reduce.spv` and loaded it from assets.
+* Created the `LocalReduceTask` C++ class.
+* Verified in Logcat that the sum of 1...256 was correctly calculated as 32896.
+
+**Key Learnings:**
+* The `barrier()` intrinsic is essential for synchronizing threads *within* a workgroup.
+* The `shared` memory reduction pattern is very effective.
+
+**Next Step:**
+* Implement Phase 3 (CPU Baseline) for our first performance comparison.
