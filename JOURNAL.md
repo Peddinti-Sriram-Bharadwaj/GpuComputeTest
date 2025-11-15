@@ -17,8 +17,6 @@
 **Next Step:**
 * Define the C++ class architecture (Singleton, Strategy) for our compute tasks.
 
-# GPGPU Compute Project Journal
-
 ## 2025-11-15: Phase 1 - Vector Add (v1.0)
 **Tag:** `v1.0-phase1-vector-add`
 
