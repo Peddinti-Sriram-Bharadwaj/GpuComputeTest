@@ -59,3 +59,41 @@
 
 **Next Step:**
 * Implement Phase 3 (CPU Baseline) for our first performance comparison.
+
+## 2025-11-15: Phase 3 - CPU Baseline (v3.0)
+**Tag:** `v3.0-phase3-cpu-baseline`
+**Branch:** `feat/3-cpu-baseline`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented a multi-threaded CPU reduction task (`CpuReduceTask`).
+* Used `std::thread` and `pthread_barrier_t` to implement a two-stage reduction (local sum + tree sum).
+* Ran on 1,048,576 elements (all 1.0f).
+* Verified correct sum of 1,048,576.
+
+**Performance Result:**
+* **Baseline Time: 5452 µs (5.452 ms)**
+
+**Next Step:**
+* Implement the full multi-pass GPU reduction (Phase 4) to beat this time.
+
+## 2025-11-15: Phase 4 - GPU Tree Reduction (v4.0)
+**Tag:** `v4.0-phase4-gpu-tree-reduce`
+**Branch:** `feat/4-gpu-tree-reduce`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented a multi-pass, ping-ponging reduction on the GPU (`GpuTreeReduceTask`).
+* Used a single shader with push constants (`passType`) to handle both the "local reduce" and "tree reduce" steps.
+* Used `vkCmdPipelineBarrier` between each of the 12 dispatch passes to synchronize.
+* Fixed an off-by-one bug in the final buffer selection.
+
+**Performance Result (1M Elements):**
+* **CPU Time:** 3056 µs
+* **GPU Time:** 2015 µs
+* **Result:** The GPU is **~34% faster** than the CPU, even with a non-optimized shader and heavy barrier synchronization.
+
+**Next Step:**
+* Implement Phase 5 (Profiling) to get the *true* GPU-only execution time using `vkCmdWriteTimestamp`.

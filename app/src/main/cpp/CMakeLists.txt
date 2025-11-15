@@ -63,6 +63,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         VectorAddTask.cpp
         LocalReduceTask.cpp
         CpuReduceTask.cpp
+        GpuTreeReduceTask.cpp
+        
 
         # Your C++ header files (for IDE visibility)
         VulkanContext.h
@@ -71,6 +73,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         VectorAddTask.h
         LocalReduceTask.h
         CpuReduceTask.h
+        GpuTreeReduceTask.h
 )
 
 # --- 4. Configure Target Properties ---

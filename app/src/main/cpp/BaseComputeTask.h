@@ -33,7 +33,7 @@ protected:
     // 5. Subclass writes the descriptor set to link buffers
     virtual void createDescriptorSet() = 0;
 
-    // --- NEW Helper: Compiles a shader from assets ---
+    // --- NEW Helper: loads a compiled shader from assets ---
     VkShaderModule loadShaderModule(const std::string& shaderPath);
 
     // --- Helper methods for subclasses ---

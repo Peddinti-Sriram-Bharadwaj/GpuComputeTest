@@ -9,6 +9,7 @@
 #include "VectorAddTask.h"
 #include "LocalReduceTask.h"
 #include "CpuReduceTask.h"
+#include "GpuTreeReduceTask.h"
 
 // --- Global Pointers ---
 VulkanContext* g_context = nullptr;
@@ -20,7 +21,8 @@ AAssetManager* g_assetManager = nullptr; // <-- NEW: Global asset manager
 enum class TaskID {
     VECTOR_ADD,
     LOCAL_REDUCE,
-    CPU_REDUCE
+    CPU_REDUCE,
+    GPU_TREE_REDUCE
 };
 
 ComputeTask* createTask(TaskID id) {
@@ -38,6 +40,8 @@ ComputeTask* createTask(TaskID id) {
 
         case TaskID::CPU_REDUCE:
             return new CpuReduceTask();
+        case TaskID::GPU_TREE_REDUCE:
+            return new GpuTreeReduceTask(g_assetManager);
         default:
             return nullptr;
     }
