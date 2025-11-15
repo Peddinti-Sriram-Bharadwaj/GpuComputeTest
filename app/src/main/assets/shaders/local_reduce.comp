@@ -1,0 +1,61 @@
+#version 450
+
+// We'll use 256 threads
+layout (local_size_x = 256) in;
+
+// Our data buffers
+layout(set = 0, binding = 0) readonly buffer InBuffer {
+    float data[];
+} inBuffer;
+
+layout(set = 0, binding = 1) writeonly buffer OutBuffer {
+    float data[]; // This buffer will only hold ONE float
+} outBuffer;
+
+// This is the key: 256 floats of fast, on-chip
+// memory shared by all 256 threads in this workgroup.
+shared float localSums[256];
+
+void main() {
+    // Get the ID for this specific thread (0-255)
+    uint localId = gl_LocalInvocationID.x;
+
+    // --- 1. Load data from global to shared memory ---
+
+    // Each thread grabs one number from the input buffer
+    // and copies it into its slot in shared memory.
+    // (We assume the input buffer has 256 elements)
+    localSums[localId] = inBuffer.data[localId];
+
+    // --- 2. Synchronize ---
+
+    // Wait for ALL 256 threads to finish loading
+    // before we start summing. This is critical.
+    barrier();
+
+    // --- 3. Parallel Reduction ---
+
+    // We do this in log2(256) = 8 steps.
+    // 's' halves each time: 128, 64, 32, 16, 8, 4, 2, 1
+    for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+
+        // Only the first half of the threads do work now
+        if (localId < s) {
+            // Add the value from the "other half"
+            localSums[localId] += localSums[localId + s];
+        }
+
+        // Wait for all threads to finish this summing step
+        // before starting the next 's' loop.
+        barrier();
+    }
+
+    // --- 4. Write the final result ---
+
+    // After the loop, the final sum is in localSums[0].
+    // Only the very first thread (id 0) writes this
+    // final result to the output buffer.
+    if (localId == 0) {
+        outBuffer.data[0] = localSums[0];
+    }
+}

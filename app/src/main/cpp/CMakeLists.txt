@@ -61,12 +61,14 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         VulkanContext.cpp
         BaseComputeTask.cpp
         VectorAddTask.cpp
+        LocalReduceTask.cpp
 
         # Your C++ header files (for IDE visibility)
         VulkanContext.h
         ComputeTask.h
         BaseComputeTask.h
         VectorAddTask.h
+        LocalReduceTask.h
 )
 
 # --- 4. Configure Target Properties ---

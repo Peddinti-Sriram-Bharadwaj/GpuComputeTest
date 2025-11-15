@@ -40,6 +40,18 @@ protected:
     void createBuffer(VkBuffer& buffer, VkDeviceMemory& bufferMemory, VkDeviceSize size,
                       VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
 
+    // For one-time command buffer recording
+    VkCommandBuffer beginSingleTimeCommands();
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+
+    // For copying data to a device-local buffer
+    void createStagingBuffer(VkBuffer& buffer, VkDeviceMemory& memory, VkDeviceSize size, const void* initialData);
+
+    // For adding a barrier
+    void addBufferBarrier(VkCommandBuffer commandBuffer, VkBuffer buffer,
+                          VkAccessFlags srcAccess, VkAccessFlags dstAccess,
+                          VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage);
+
     // --- Common Vulkan Objects ---
     VulkanContext* m_context;
     AAssetManager* m_assetManager; // <-- NEW

@@ -153,3 +153,88 @@ void BaseComputeTask::createBuffer(VkBuffer& buffer, VkDeviceMemory& bufferMemor
 
     vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
+
+VkCommandBuffer BaseComputeTask::beginSingleTimeCommands() {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = m_context->getCommandPool();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(m_context->getDevice(), &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+}
+
+void BaseComputeTask::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VkQueue queue = m_context->getQueue();
+    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+
+    vkFreeCommandBuffers(m_context->getDevice(), m_context->getCommandPool(), 1, &commandBuffer);
+}
+
+void BaseComputeTask::addBufferBarrier(VkCommandBuffer commandBuffer, VkBuffer buffer,
+                                       VkAccessFlags srcAccess, VkAccessFlags dstAccess,
+                                       VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+    VkBufferMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barrier.srcAccessMask = srcAccess;
+    barrier.dstAccessMask = dstAccess;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.buffer = buffer;
+    barrier.offset = 0;
+    barrier.size = VK_WHOLE_SIZE;
+
+    vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage,
+                         0, 0, nullptr, 1, &barrier, 0, nullptr);
+}
+
+void BaseComputeTask::createStagingBuffer(VkBuffer& buffer, VkDeviceMemory& memory, VkDeviceSize size, const void* initialData) {
+    VkDevice device = m_context->getDevice();
+
+    // 1. Create a temporary staging buffer (CPU-visible)
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    BaseComputeTask::createBuffer(stagingBuffer, stagingBufferMemory, size,
+                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    // 2. Map it and copy the initial data into it
+    void* mappedData;
+    vkMapMemory(device, stagingBufferMemory, 0, size, 0, &mappedData);
+    memcpy(mappedData, initialData, (size_t)size);
+    vkUnmapMemory(device, stagingBufferMemory);
+
+    // 3. Create the final destination buffer (GPU-only)
+    BaseComputeTask::createBuffer(buffer, memory, size,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // 4. Use a one-time command buffer to copy from staging to device buffer
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+    VkBufferCopy copyRegion{};
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer, stagingBuffer, buffer, 1, &copyRegion);
+
+    endSingleTimeCommands(commandBuffer);
+
+    // 5. Clean up temporary staging buffer
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
+}

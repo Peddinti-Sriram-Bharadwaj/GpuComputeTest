@@ -7,6 +7,7 @@
 #include "VulkanContext.h"
 #include "ComputeTask.h"
 #include "VectorAddTask.h"
+#include "LocalReduceTask.h"
 
 // --- Global Pointers ---
 VulkanContext* g_context = nullptr;
@@ -16,7 +17,8 @@ AAssetManager* g_assetManager = nullptr; // <-- NEW: Global asset manager
 
 // --- Task Factory ---
 enum class TaskID {
-    VECTOR_ADD
+    VECTOR_ADD,
+    LOCAL_REDUCE
 };
 
 ComputeTask* createTask(TaskID id) {
@@ -28,6 +30,9 @@ ComputeTask* createTask(TaskID id) {
         case TaskID::VECTOR_ADD:
             // Pass the asset manager to the task
             return new VectorAddTask(g_assetManager); // <-- MODIFIED
+
+        case TaskID::LOCAL_REDUCE:
+            return new LocalReduceTask(g_assetManager);
         default:
             return nullptr;
     }
@@ -64,7 +69,7 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
 
         // 2. Create the task using our factory
         LOGI("--- Creating Compute Task ---");
-        g_task = createTask(TaskID::VECTOR_ADD);
+        g_task = createTask(TaskID::LOCAL_REDUCE);
         if (g_task == nullptr) {
             throw std::runtime_error("Failed to create task");
         }
