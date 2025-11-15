@@ -13,7 +13,7 @@ public:
     virtual void init() = 0;
 
     // 2. Record commands and submit to the queue
-    virtual void dispatch() = 0;
+    virtual long long dispatch() = 0;
 
     // 3. Clean up all the resources created in init()
     virtual void cleanup() = 0;

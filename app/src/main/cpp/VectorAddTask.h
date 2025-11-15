@@ -11,7 +11,7 @@ public:
     ~VectorAddTask();
 
     // --- ComputeTask Interface ---
-    void dispatch() override;
+    long long dispatch() override;
     void cleanup() override;
 
 protected:

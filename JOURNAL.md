@@ -97,3 +97,21 @@
 
 **Next Step:**
 * Implement Phase 5 (Profiling) to get the *true* GPU-only execution time using `vkCmdWriteTimestamp`.
+
+## 2025-11-15: Phase 5 - Accurate GPU Profiling (v5.0)
+**Tag:** `v5.0-final-profiling`
+**Branch:** `feat/5-profiling`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented a `VkQueryPool` with `vkCmdWriteTimestamp` to get the true, on-device GPU execution time.
+* Fixed the final off-by-one buffer read bug.
+
+**Final Performance Results (1M Elements):**
+* **CPU (Multi-threaded):** 3056 µs
+* **GPU (CPU-timed, incl. stall):** 2015 µs
+* **GPU (True, `vkCmdWriteTimestamp`):** 1048 µs
+
+**Conclusion:**
+The project is a success. We've proven that for a 1M element reduction, the GPU on the Pixel 10 Pro is **2.9 times faster** than its multi-core CPU. We also identified that the CPU stall time (`vkQueueWaitIdle`) accounts for nearly 50% of the perceived "GPU time" when measured from the CPU.

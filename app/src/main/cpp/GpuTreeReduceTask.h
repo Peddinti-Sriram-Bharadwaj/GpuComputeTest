@@ -11,7 +11,7 @@ struct PushData {
 
 class GpuTreeReduceTask : public BaseComputeTask {
 public:
-    GpuTreeReduceTask(AAssetManager* assetManager);
+    GpuTreeReduceTask(AAssetManager* assetManager, uint32_t n);
     ~GpuTreeReduceTask();
 
     // --- ComputeTask Interface ---
@@ -19,7 +19,7 @@ public:
     // We override init to create our custom pipeline layout
     void init() override;
 
-    void dispatch() override;
+    long long dispatch() override;
     void cleanup() override;
 
 protected:
@@ -53,7 +53,9 @@ private:
     VkQueryPool m_queryPool = VK_NULL_HANDLE;
     float m_gpuTimestampPeriod = 1.0f; // Nanoseconds per timestamp 'tick'
 
+    uint32_t m_n;
+
     // We use the same problem size as the CPU
-    static const uint32_t NUM_ELEMENTS = 1024 * 1024;
+    // static const uint32_t NUM_ELEMENTS = 1024 * 1024;
     static const uint32_t WORKGROUP_SIZE = 256;
 };

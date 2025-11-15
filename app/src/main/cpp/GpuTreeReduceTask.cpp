@@ -4,9 +4,9 @@
 #include <numeric>
 #include <cmath>
 
-GpuTreeReduceTask::GpuTreeReduceTask(AAssetManager* assetManager)
-        : BaseComputeTask(assetManager) {
-    LOGI("GpuTreeReduceTask created");
+GpuTreeReduceTask::GpuTreeReduceTask(AAssetManager* assetManager, uint32_t n)
+        : BaseComputeTask(assetManager), m_n(n) {
+    LOGI("GpuTreeReduceTask created. N=%u", m_n);
     // Get the timestamp period from the context
     m_gpuTimestampPeriod = m_context->getTimeStampPeriod();
 }
@@ -136,16 +136,150 @@ void GpuTreeReduceTask::createDescriptorSetLayout() {
     }
 }
 
-void GpuTreeReduceTask::createBuffers() {
-    // ... (unchanged)
-    VkDeviceSize dataSize = sizeof(float) * NUM_ELEMENTS;
-    std::vector<float> inData(NUM_ELEMENTS);
-    std::fill(inData.begin(), inData.end(), 1.0f);
-    createStagingBuffer(m_bufferA, m_bufferMemoryA, dataSize, inData.data());
-    VkDeviceSize intermediateSize = sizeof(float) * (NUM_ELEMENTS / WORKGROUP_SIZE);
-    BaseComputeTask::createBuffer(m_bufferB, m_bufferMemoryB, intermediateSize,
-                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+long long GpuTreeReduceTask::dispatch() {
+    VkDevice device = m_context->getDevice();
+    // VkQueue queue = m_context->getQueue(); // Unused variable, removed
+
+    // --- 1. Get CPU-side timer ---
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    // --- 2. Allocate Command Buffer ---
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+    // --- 3. Reset Query Pool ---
+    if (m_queryPool != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(commandBuffer, m_queryPool, 0, 2);
+    }
+    // ---
+
+    // Bind the pipeline
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
+
+    // --- 4. Write START Timestamp ---
+    if (m_queryPool != VK_NULL_HANDLE) {
+        vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_queryPool, 0);
+    }
+    // ---
+
+    PushData pushData{};
+
+    // --- 5. Pass 1: Local Reduce ---
+    pushData.passType = 0;
+    pushData.numElements = m_n;
+    vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushData), &pushData);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 0, 1, &m_descriptorSetA_to_B, 0, nullptr);
+    uint32_t numWorkgroups = m_n / WORKGROUP_SIZE;
+    vkCmdDispatch(commandBuffer, numWorkgroups, 1, 1);
+
+    // --- 6. Pass 2...N: Tree Reduce Loop ---
+    uint32_t elementsToProcess = numWorkgroups;
+    bool readFromB_writeToA = true;
+
+    while (elementsToProcess > 1) {
+        // *** CRITICAL BARRIER ***
+        addBufferBarrier(commandBuffer,
+                         readFromB_writeToA ? m_bufferB : m_bufferA,
+                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+        // --- Configure this pass ---
+        pushData.passType = 1;
+        pushData.numElements = elementsToProcess;
+        vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushData), &pushData);
+
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 0, 1,
+                                readFromB_writeToA ? &m_descriptorSetB_to_A : &m_descriptorSetA_to_B,
+                                0, nullptr);
+
+        numWorkgroups = (uint32_t)std::ceil((float)(elementsToProcess / 2.0f) / (float)WORKGROUP_SIZE);
+        vkCmdDispatch(commandBuffer, numWorkgroups, 1, 1);
+
+        elementsToProcess = (uint32_t)std::ceil((float)elementsToProcess / 2.0f);
+        readFromB_writeToA = !readFromB_writeToA;
+    }
+
+    // --- 7. Read Back Result ---
+    VkBuffer finalBuffer = readFromB_writeToA ? m_bufferB : m_bufferA; // The fix
+    VkDeviceMemory finalMemory = readFromB_writeToA ? m_bufferMemoryB : m_bufferMemoryA;
+
+    // *** FINAL BARRIER ***
+    // Wait for shader writes to be visible to the HOST (CPU)
+    addBufferBarrier(commandBuffer, finalBuffer,
+                     VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT,
+                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT);
+
+    // --- 8. Write END Timestamp ---
+    if (m_queryPool != VK_NULL_HANDLE) {
+        // We record this *after* the barrier, so it includes all compute work.
+        vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_queryPool, 1);
+    }
+    // ---
+
+    // --- 9. NO MORE STAGING BUFFER ---
+    // We don't need vkCmdCopyBuffer or a staging buffer
+    // ...
+
+    // --- 10. End Recording and Submit ---
+    endSingleTimeCommands(commandBuffer); // This includes vkQueueWaitIdle()
+
+    // --- 11. Get CPU-side timer ---
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+
+    // --- 12. Get GPU Timestamp Results (with error checking) ---
+    if (m_queryPool != VK_NULL_HANDLE) {
+        // We need 2 results (start, end), 64-bits each
+        uint64_t timestamps[2] = {0, 0};
+
+        // This copies the results from the GPU pool to our CPU variable
+        VkResult result = vkGetQueryPoolResults(device, m_queryPool, 0, 2,
+                                                sizeof(timestamps), timestamps, sizeof(uint64_t),
+                                                VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+        if (result == VK_SUCCESS) {
+            // Calculate the time in nanoseconds
+            uint64_t startTimeNs = timestamps[0] * m_gpuTimestampPeriod;
+            uint64_t endTimeNs = timestamps[1] * m_gpuTimestampPeriod;
+            uint64_t gpuDurationNs = endTimeNs - startTimeNs;
+
+            // Convert to microseconds
+            double gpuDurationMicroseconds = (double)gpuDurationNs / 1000.0;
+
+            LOGI("--- GPU PROFILING ---");
+            LOGI("GPU-Only Execution Time: %.3f microseconds", gpuDurationMicroseconds);
+
+        } else if (result == VK_NOT_READY) {
+            LOGW("--- GPU PROFILING FAILED ---");
+            LOGW("vkGetQueryPoolResults returned VK_NOT_READY. Results not available.");
+        } else {
+            LOGW("--- GPU PROFILING FAILED ---");
+            LOGW("vkGetQueryPoolResults failed with error code: %d", result);
+        }
+    }
+    // ---
+
+    // --- 13. Verify (Read directly from the final buffer) ---
+    void* mappedData;
+    vkMapMemory(device, finalMemory, 0, sizeof(float), 0, &mappedData);
+
+    float result = *(float*)mappedData;
+    float expected = (float)m_n;
+
+    LOGI("--- VERIFICATION (N=%u) ---", m_n);
+    LOGI("Result: %.0f (Expected: %.0f)", result, expected);
+
+    if(abs(result - expected) < 0.01f) {
+        LOGI("SUCCESS");
+    } else {
+        LOGE("FAILED");
+    }
+
+    vkUnmapMemory(device, finalMemory);
+
+    // --- 14. Cleanup (No staging buffer) ---
+    LOGI("CPU-side timer (incl. stall): %lld microseconds", (long long)duration.count());
+
+    return duration.count();
 }
 
 void GpuTreeReduceTask::createDescriptorPool() {
@@ -222,150 +356,36 @@ void GpuTreeReduceTask::createDescriptorSet() {
     vkUpdateDescriptorSets(m_context->getDevice(), 2, writesB_A.data(), 0, nullptr);
 }
 
-
-// --- The Core Multi-Pass Dispatch Logic ---
-
-void GpuTreeReduceTask::dispatch() {
+void GpuTreeReduceTask::createBuffers() {
     VkDevice device = m_context->getDevice();
-    VkQueue queue = m_context->getQueue();
+    VkDeviceSize dataSize = sizeof(float) * m_n;
 
-    auto startTime = std::chrono::high_resolution_clock::now();
+    // Define the unified memory properties for a mobile GPU
+    VkMemoryPropertyFlags properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
-    // 1. Allocate Command Buffer
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+    // --- 1. Create Buffer A (Input / Ping-Pong) ---
+    BaseComputeTask::createBuffer(m_bufferA, m_bufferMemoryA, dataSize,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, // Needs to be storage
+                                  properties);
 
-    // --- 2. NEW: Reset Query Pool ---
-    if (m_queryPool != VK_NULL_HANDLE) {
-        vkCmdResetQueryPool(commandBuffer, m_queryPool, 0, 2);
-    }
-    // ---
-
-    // Bind the pipeline
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
-
-    // --- 3. NEW: Write START Timestamp ---
-    if (m_queryPool != VK_NULL_HANDLE) {
-        vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_queryPool, 0);
-    }
-    // ---
-
-    PushData pushData{};
-
-    // 4. Pass 1: Local Reduce
-    pushData.passType = 0;
-    pushData.numElements = NUM_ELEMENTS;
-    vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushData), &pushData);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 0, 1, &m_descriptorSetA_to_B, 0, nullptr);
-    uint32_t numWorkgroups = NUM_ELEMENTS / WORKGROUP_SIZE;
-    vkCmdDispatch(commandBuffer, numWorkgroups, 1, 1);
-
-    // 5. Pass 2...N: Tree Reduce Loop
-    uint32_t elementsToProcess = numWorkgroups;
-    bool readFromB_writeToA = true;
-
-    while (elementsToProcess > 1) {
-        // *** CRITICAL BARRIER ***
-        addBufferBarrier(commandBuffer,
-                         readFromB_writeToA ? m_bufferB : m_bufferA,
-                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-        // --- Configure this pass ---
-        pushData.passType = 1;
-        pushData.numElements = elementsToProcess;
-        vkCmdPushConstants(commandBuffer, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushData), &pushData);
-
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 0, 1,
-                                readFromB_writeToA ? &m_descriptorSetB_to_A : &m_descriptorSetA_to_B,
-                                0, nullptr);
-
-        numWorkgroups = (uint32_t)std::ceil((float)(elementsToProcess / 2.0f) / (float)WORKGROUP_SIZE);
-        vkCmdDispatch(commandBuffer, numWorkgroups, 1, 1);
-
-        elementsToProcess = (uint32_t)std::ceil((float)elementsToProcess / 2.0f);
-        readFromB_writeToA = !readFromB_writeToA;
-    }
-
-    // 6. Read Back Result
-    // (This is the fixed line from Phase 4)
-    VkBuffer finalBuffer = readFromB_writeToA ? m_bufferB : m_bufferA;
-
-    // *** FINAL BARRIER ***
-    addBufferBarrier(commandBuffer, finalBuffer,
-                     VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-    // --- 7. NEW: Write END Timestamp ---
-    if (m_queryPool != VK_NULL_HANDLE) {
-        // We record this *after* the barrier, so it includes all compute work.
-        vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_queryPool, 1);
-    }
-    // ---
-
-    // Create staging buffer
-    VkBuffer stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
-    VkDeviceSize bufferSize = sizeof(float);
-    BaseComputeTask::createBuffer(stagingBuffer, stagingBufferMemory, bufferSize,
-                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    // Copy the single float result
-    VkBufferCopy copyRegion{};
-    copyRegion.size = bufferSize;
-    vkCmdCopyBuffer(commandBuffer, finalBuffer, stagingBuffer, 1, &copyRegion);
-
-    // 8. End Recording and Submit
-    endSingleTimeCommands(commandBuffer); // This includes vkQueueWaitIdle()
-
-    // --- 9. Get CPU-side timer ---
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
-
-    // --- 10. NEW: Get GPU Timestamp Results ---
-    if (m_queryPool != VK_NULL_HANDLE) {
-        // We need 2 results (start, end), 64-bits each
-        uint64_t timestamps[2] = {0, 0};
-
-        // This copies the results from the GPU pool to our CPU variable
-        vkGetQueryPoolResults(device, m_queryPool, 0, 2,
-                              sizeof(timestamps), timestamps, sizeof(uint64_t),
-                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
-
-        // Calculate the time in nanoseconds
-        uint64_t startTimeNs = timestamps[0] * m_gpuTimestampPeriod;
-        uint64_t endTimeNs = timestamps[1] * m_gpuTimestampPeriod;
-        uint64_t gpuDurationNs = endTimeNs - startTimeNs;
-
-        // Convert to microseconds
-        double gpuDurationMicroseconds = (double)gpuDurationNs / 1000.0;
-
-        LOGI("--- GPU PROFILING ---");
-        LOGI("GPU-Only Execution Time: %.3f microseconds", gpuDurationMicroseconds);
-    }
-    // ---
-
-    // 11. Verify
+    // --- 2. Fill Buffer A directly (no staging buffer!) ---
     void* mappedData;
-    vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &mappedData);
+    vkMapMemory(device, m_bufferMemoryA, 0, dataSize, 0, &mappedData);
 
-    float result = *(float*)mappedData;
-    float expected = (float)NUM_ELEMENTS;
-
-    LOGI("--- VERIFICATION ---");
-    LOGI("GPU Tree Reduce Result: %.0f", result);
-    LOGI("Expected Result:        %.0f", expected);
-
-    if (abs(result - expected) < 0.01f) {
-        LOGI("--- GPU TREE REDUCE SUCCESS ---");
-    } else {
-        LOGE("--- GPU TREE REDUCE FAILED ---");
+    float* dataPtr = (float*)mappedData;
+    for(size_t i = 0; i < m_n; i++) {
+        dataPtr[i] = 1.0f; // Fill with 1.0f
     }
-    LOGI("CPU-side timer (incl. stall): %lld microseconds", (long long)duration.count());
 
-    vkUnmapMemory(device, stagingBufferMemory);
+    vkUnmapMemory(device, m_bufferMemoryA);
 
-    // 12. Cleanup
-    vkDestroyBuffer(device, stagingBuffer, nullptr);
-    vkFreeMemory(device, stagingBufferMemory, nullptr);
+    // --- 3. Create Buffer B (Intermediate / Ping-Pong) ---
+    // Size is based on the number of workgroups from pass 1
+    VkDeviceSize intermediateSize = sizeof(float) * (m_n / WORKGROUP_SIZE);
+
+    BaseComputeTask::createBuffer(m_bufferB, m_bufferMemoryB, intermediateSize,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, // Storage + readback
+                                  properties);
 }

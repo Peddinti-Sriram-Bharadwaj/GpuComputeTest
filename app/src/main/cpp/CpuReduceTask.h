@@ -9,17 +9,17 @@
 #include <pthread.h>      // For pthread_barrier_t
 
 // We'll test with 1 million elements
-const size_t CPU_DATA_SIZE = 1024 * 1024;
+// const size_t CPU_DATA_SIZE = 1024 * 1024;
 
 class CpuReduceTask : public ComputeTask {
 public:
-    CpuReduceTask();
+    CpuReduceTask(size_t n);
     ~CpuReduceTask();
 
     // --- ComputeTask Interface ---
     // (We'll just log things, no Vulkan)
     void init() override;
-    void dispatch() override;
+    long long dispatch() override;
     void cleanup() override;
 
 private:
@@ -27,6 +27,7 @@ private:
     void reduceThread(size_t threadId);
 
     int m_numThreads;
+    size_t m_n;
 
     // Our data buffers
     std::vector<float> m_data;

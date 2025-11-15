@@ -163,7 +163,7 @@ void VectorAddTask::createDescriptorSet() {
 
 
 // --- The Core Dispatch Logic ---
-void VectorAddTask::dispatch() {
+long long VectorAddTask::dispatch() {
     // ... (this function is unchanged)
     VkDevice device = m_context->getDevice();
     VkCommandPool commandPool = m_context->getCommandPool();
@@ -255,6 +255,8 @@ void VectorAddTask::dispatch() {
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     vkDestroyBuffer(device, stagingBuffer, nullptr);
     vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+    return 0;
 }
 
 

@@ -141,7 +141,7 @@ void LocalReduceTask::createDescriptorSet() {
 }
 
 
-void LocalReduceTask::dispatch() {
+long long LocalReduceTask::dispatch() {
     VkDevice device = m_context->getDevice();
     VkCommandPool commandPool = m_context->getCommandPool();
     VkQueue queue = m_context->getQueue();
@@ -202,4 +202,6 @@ void LocalReduceTask::dispatch() {
     // --- 6. Cleanup ---
     vkDestroyBuffer(device, stagingBuffer, nullptr);
     vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+    return 0;
 }
