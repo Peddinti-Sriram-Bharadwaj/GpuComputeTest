@@ -49,6 +49,10 @@ private:
     VkDescriptorSet m_descriptorSetA_to_B = VK_NULL_HANDLE;
     VkDescriptorSet m_descriptorSetB_to_A = VK_NULL_HANDLE;
 
+    // GPU profiling members
+    VkQueryPool m_queryPool = VK_NULL_HANDLE;
+    float m_gpuTimestampPeriod = 1.0f; // Nanoseconds per timestamp 'tick'
+
     // We use the same problem size as the CPU
     static const uint32_t NUM_ELEMENTS = 1024 * 1024;
     static const uint32_t WORKGROUP_SIZE = 256;

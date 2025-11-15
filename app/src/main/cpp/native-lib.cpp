@@ -71,7 +71,7 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
     std::string resultMessage;
 
     // --- Define which task to run ---
-    TaskID taskToRun = TaskID::CPU_REDUCE;
+    TaskID taskToRun = TaskID::GPU_TREE_REDUCE;
 
     try {
         // 1. Initialize Vulkan *only if needed*

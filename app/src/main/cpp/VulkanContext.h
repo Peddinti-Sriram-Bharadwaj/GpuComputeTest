@@ -6,8 +6,8 @@
 // --- Logging Macros ---
 #define LOG_TAG "GpuCompute"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-
 class VulkanContext {
 public:
     // --- Singleton Access ---
@@ -31,6 +31,7 @@ public:
     uint32_t getComputeQueueFamilyIndex() { return m_computeQueueFamilyIndex; }
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    float getTimeStampPeriod() { return m_timestampPeriod; }
 
 private:
     // --- Private Singleton Constructor ---
@@ -44,6 +45,7 @@ private:
     VkQueue m_queue = VK_NULL_HANDLE;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     uint32_t m_computeQueueFamilyIndex = -1;
+    float m_timestampPeriod = 1.0f;
 
     // --- Private Helpers ---
     void createInstance();

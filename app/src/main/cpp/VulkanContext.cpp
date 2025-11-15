@@ -100,12 +100,23 @@ void VulkanContext::pickPhysicalDevice() {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
 
-    // We'll just pick the first available GPU
     m_physicalDevice = devices[0];
 
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(m_physicalDevice, &deviceProperties);
     LOGI("Using GPU: %s", deviceProperties.deviceName);
+
+    // --- ADD THIS BLOCK ---
+    // Check for timestamp support
+    if (deviceProperties.limits.timestampComputeAndGraphics) {
+        // This is the number of nanoseconds per 'tick'
+        m_timestampPeriod = deviceProperties.limits.timestampPeriod;
+        LOGI("GPU timestamp support found. Period: %f ns/tick", m_timestampPeriod);
+    } else {
+        LOGW("GPU timestamp support NOT found. Profiling will be 0.");
+        m_timestampPeriod = 0.0f;
+    }
+    // --- END OF BLOCK ---
 }
 
 void VulkanContext::findComputeQueueFamily() {
