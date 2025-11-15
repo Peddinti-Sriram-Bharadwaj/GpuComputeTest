@@ -1,0 +1,92 @@
+#version 450
+
+// 256 threads per workgroup
+layout (local_size_x = 256) in;
+
+// We use two buffers for "ping-ponging"
+// Pass 1: Read[A], Write[B]
+// Pass 2: Read[B], Write[A]
+// Pass 3: Read[A], Write[B]
+// ...and so on.
+layout(set = 0, binding = 0) readonly buffer InBuffer {
+    float data[];
+} inBuffer;
+
+layout(set = 0, binding = 1) writeonly buffer OutBuffer {
+    float data[];
+} outBuffer;
+
+// --- Push Constants ---
+// Small, fast data from the CPU
+layout(push_constant) uniform PushData {
+// 0 = Local Reduce (Pass 1)
+// 1 = Tree Reduce (Pass 2...N)
+    uint passType;
+
+// Number of elements this pass is working on
+    uint numElements;
+} pushData;
+
+// Shared memory, just like Phase 2
+shared float localSums[256];
+
+void main() {
+    uint globalId = gl_GlobalInvocationID.x;
+    uint localId = gl_LocalInvocationID.x;
+    uint workgroupId = gl_WorkGroupID.x;
+
+    // --- PASS 1: LOCAL REDUCE ---
+    // (Each workgroup reduces 256 elements)
+    if (pushData.passType == 0) {
+
+        // 1. Calculate the starting index for this workgroup
+        uint dataIndex = workgroupId * 256 + localId;
+
+        // 2. Load from global to shared memory
+        if (dataIndex < pushData.numElements) {
+            localSums[localId] = inBuffer.data[dataIndex];
+        } else {
+            localSums[localId] = 0.0; // Neutral element for sums
+        }
+
+        // 3. Sync
+        barrier();
+
+        // 4. Parallel reduction in shared memory
+        for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+            if (localId < s) {
+                localSums[localId] += localSums[localId + s];
+            }
+            barrier();
+        }
+
+        // 5. Thread 0 writes the partial sum
+        if (localId == 0) {
+            // Write to the output buffer at this workgroup's index
+            outBuffer.data[workgroupId] = localSums[0];
+        }
+    }
+
+    // --- PASS 2...N: TREE REDUCE ---
+    // (Each workgroup reduces 2 elements from the *last pass*)
+    else if (pushData.passType == 1) {
+
+        // We launch half as many workgroups, so the
+        // globalId is 0...N/2
+
+        // Each thread reads two sums from the *previous* pass
+        uint readIndex1 = globalId * 2;
+        uint readIndex2 = globalId * 2 + 1;
+
+        // Make sure we're not reading out of bounds
+        if (readIndex2 < pushData.numElements) {
+            float val1 = inBuffer.data[readIndex1];
+            float val2 = inBuffer.data[readIndex2];
+            // Write the new, combined sum
+            outBuffer.data[globalId] = val1 + val2;
+        } else if (readIndex1 < pushData.numElements) {
+            // Edge case: odd number of elements, just copy
+            outBuffer.data[globalId] = inBuffer.data[readIndex1];
+        }
+    }
+}
