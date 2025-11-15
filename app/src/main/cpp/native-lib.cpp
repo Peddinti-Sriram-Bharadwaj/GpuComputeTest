@@ -8,6 +8,7 @@
 #include "ComputeTask.h"
 #include "VectorAddTask.h"
 #include "LocalReduceTask.h"
+#include "CpuReduceTask.h"
 
 // --- Global Pointers ---
 VulkanContext* g_context = nullptr;
@@ -18,7 +19,8 @@ AAssetManager* g_assetManager = nullptr; // <-- NEW: Global asset manager
 // --- Task Factory ---
 enum class TaskID {
     VECTOR_ADD,
-    LOCAL_REDUCE
+    LOCAL_REDUCE,
+    CPU_REDUCE
 };
 
 ComputeTask* createTask(TaskID id) {
@@ -33,6 +35,9 @@ ComputeTask* createTask(TaskID id) {
 
         case TaskID::LOCAL_REDUCE:
             return new LocalReduceTask(g_assetManager);
+
+        case TaskID::CPU_REDUCE:
+            return new CpuReduceTask();
         default:
             return nullptr;
     }
@@ -61,20 +66,25 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
 
     std::string resultMessage;
 
+    // --- Define which task to run ---
+    TaskID taskToRun = TaskID::CPU_REDUCE;
+
     try {
-        // 1. Initialize Vulkan Singleton
-        LOGI("--- Initializing Vulkan Context ---");
-        g_context = VulkanContext::getInstance();
-        g_context->init();
+        // 1. Initialize Vulkan *only if needed*
+        if (taskToRun != TaskID::CPU_REDUCE) {
+            LOGI("--- Initializing Vulkan Context ---");
+            g_context = VulkanContext::getInstance();
+            g_context->init();
+        }
 
         // 2. Create the task using our factory
         LOGI("--- Creating Compute Task ---");
-        g_task = createTask(TaskID::LOCAL_REDUCE);
+        g_task = createTask(taskToRun);
         if (g_task == nullptr) {
             throw std::runtime_error("Failed to create task");
         }
 
-        // 3. Initialize the task (creates buffers, pipeline)
+        // 3. Initialize the task (allocates memory)
         LOGI("--- Initializing Compute Task ---");
         g_task->init();
 
@@ -83,7 +93,7 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
         g_task->dispatch();
 
         // 5. Set success message
-        resultMessage = "Vulkan Compute Task (Vector Add) Finished Successfully.";
+        resultMessage = "CPU Reduce Task Finished Successfully.";
 
     } catch (const std::exception& e) {
         LOGE("!!! FATAL ERROR: %s", e.what());
