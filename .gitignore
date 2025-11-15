@@ -1,0 +1,33 @@
+# --- Android Studio / Gradle ---
+*.iml
+.gradle/
+/build/
+/app/build/
+local.properties
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+captures/
+.DS_Store
+
+# --- Android Artifacts ---
+*.apk
+*.aab
+*.ap_
+*.a_
+*.so
+*.dex
+output/
+
+# --- NDK / CMake ---
+.cxx/
+cmake-build-debug/
+cmake-build-release/
+CMakeFiles/
+CMakeCache.txt
+install_manifest.txt
+compile_commands.json
+.externalNativeBuild/
