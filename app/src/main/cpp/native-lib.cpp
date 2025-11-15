@@ -71,20 +71,11 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
         JNIEnv* env,
         jobject /* this */) {
 
-    std::string resultMessage = "Experiment finished. Check Logcat.";
+    std::string resultMessage = "Iterative test finished. Check Logcat.";
 
-    std::vector<uint32_t> testSizes = {
-            256 * 1,    // 256
-            256 * 4,    // 1,024
-            256 * 16,   // 4,096
-            256 * 64,   // 16,384
-            256 * 128,  // 32,768
-            256 * 256,  // 65,536
-            256 * 512,  // 131,072
-            256 * 1024, // 262,144
-            256 * 2048, // 524,288
-            256 * 4096  // 1,048,576
-    };
+    // --- Define the experiment ---
+    const int NUM_ITERATIONS = 100;
+    const uint32_t N = 1048576; // Our 1M element test size
 
     try {
         // --- 1. Init Vulkan (once) ---
@@ -92,62 +83,58 @@ Java_com_example_gpucomputetest_MainActivity_stringFromJNI(
         g_context = VulkanContext::getInstance();
         g_context->init();
 
-        // --- 2. WARMUP RUNS ---
-        LOGI("--- STARTING WARMUP RUNS ---");
-        for (uint32_t n : testSizes) {
-            // Run CPU
-            ComputeTask* taskCpu = createTask(TaskID::CPU_REDUCE, n);
-            if(taskCpu) {
-                taskCpu->init();
-                taskCpu->dispatch(); // Run but ignore result
-                taskCpu->cleanup();
-                delete taskCpu;
-            }
-            // Run GPU
-            ComputeTask* taskGpu = createTask(TaskID::GPU_TREE_REDUCE, n);
-            if(taskGpu) {
-                taskGpu->init();
-                taskGpu->dispatch(); // Run but ignore result
-                taskGpu->cleanup();
-                delete taskGpu;
-            }
+        // --- 2. WARMUP RUN ---
+        // Warm up the GPU with one run
+        LOGI("--- STARTING WARMUP RUN ---");
+        ComputeTask* warmupTask = createTask(TaskID::GPU_TREE_REDUCE, N);
+        if(warmupTask) {
+            warmupTask->init();
+            warmupTask->dispatch();
+            warmupTask->cleanup();
+            delete warmupTask;
         }
         LOGI("--- WARMUP COMPLETE ---");
 
-        // --- 3. TIMED RUNS ---
-        LOGI("--- STARTING TIMED BENCHMARKS ---");
 
-        std::vector<long long> cpuTimes;
-        std::vector<long long> gpuTimes;
+        // --- 3. TIMED ITERATIVE (HYBRID) TEST ---
+        LOGI("--- STARTING TIMED ITERATIVE TEST (100 runs) ---");
 
-        // --- Run CPU Tests ---
-        for (uint32_t n : testSizes) {
-            ComputeTask* task = createTask(TaskID::CPU_REDUCE, n);
-            task->init();
-            cpuTimes.push_back(task->dispatch()); // Store result
-            task->cleanup();
-            delete task;
+        // We re-create the task to start fresh
+        ComputeTask* iterativeTask = createTask(TaskID::GPU_TREE_REDUCE, N);
+        iterativeTask->init();
+
+        long long totalIterativeTime = 0;
+
+        // Start the timer for the whole loop
+        auto startTime = std::chrono::high_resolution_clock::now();
+
+        for (int i = 0; i < NUM_ITERATIONS; i++) {
+            // dispatch() waits for the GPU to finish each time.
+            // This simulates a "hybrid" app that needs the result
+            // back on the CPU before doing the next step.
+
+            ((GpuTreeReduceTask*)iterativeTask)->reset();
+            long long singleRunTime = iterativeTask->dispatch();
+            totalIterativeTime += singleRunTime;
         }
 
-        // --- Run GPU Tests ---
-        for (uint32_t n : testSizes) {
-            ComputeTask* task = createTask(TaskID::GPU_TREE_REDUCE, n);
-            task->init();
-            gpuTimes.push_back(task->dispatch()); // Store result
-            task->cleanup();
-            delete task;
-        }
+        auto endTime = std::chrono::high_resolution_clock::now();
+        long long totalLoopTime = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+
+        iterativeTask->cleanup();
+        delete iterativeTask;
+
+        LOGI("--- ITERATIVE TEST COMPLETE ---");
 
         // --- 4. FORMAT AND LOG FINAL TABLE ---
         std::stringstream ss;
-        ss << "\n\n--- FINAL BENCHMARK RESULTS ---\n";
-        ss << "N (Elements),CPU_Time_us,GPU_Time_us\n";
-        for (size_t i = 0; i < testSizes.size(); ++i) {
-            ss << testSizes[i] << "," << cpuTimes[i] << "," << gpuTimes[i] << "\n";
-        }
+        ss << "\n\n--- ITERATIVE (HYBRID) WORKLOAD RESULTS ---\n";
+        ss << "Total iterations: " << NUM_ITERATIONS << "\n";
+        ss << "Problem Size (N): " << N << "\n";
+        ss << "Total time for " << NUM_ITERATIONS << " syncs (CPU clock): " << totalLoopTime << " µs\n";
+        ss << "Average time per sync (dispatch() result): " << (totalIterativeTime / NUM_ITERATIONS) << " µs\n";
         ss << "--- END OF RESULTS ---\n\n";
 
-        // Log the entire table in one go
         LOGI("%s", ss.str().c_str());
 
     } catch (const std::exception& e) {

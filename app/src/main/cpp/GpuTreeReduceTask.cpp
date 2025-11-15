@@ -389,3 +389,20 @@ void GpuTreeReduceTask::createBuffers() {
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, // Storage + readback
                                   properties);
 }
+
+// --- NEW FUNCTION ---
+void GpuTreeReduceTask::reset() {
+    // Re-fills m_bufferA with 1.0f to reset the state for the next run
+    VkDevice device = m_context->getDevice();
+    VkDeviceSize dataSize = sizeof(float) * m_n;
+
+    void* mappedData;
+    vkMapMemory(device, m_bufferMemoryA, 0, dataSize, 0, &mappedData);
+
+    float* dataPtr = (float*)mappedData;
+    for(size_t i = 0; i < m_n; i++) {
+        dataPtr[i] = 1.0f;
+    }
+
+    vkUnmapMemory(device, m_bufferMemoryA);
+}

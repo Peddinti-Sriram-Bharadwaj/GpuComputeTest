@@ -22,6 +22,8 @@ public:
     long long dispatch() override;
     void cleanup() override;
 
+    void reset();
+
 protected:
     // --- BaseComputeTask "Fill-in-the-blanks" ---
     std::string getShaderPath() override;
