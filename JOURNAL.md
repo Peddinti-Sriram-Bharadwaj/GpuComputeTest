@@ -149,3 +149,25 @@ The project is a success. We've proven that for a 1M element reduction, the GPU 
 
 **Next Step:**
 * Analyze the iterative workload (Objective 2).
+
+## 2025-11-15: Phase 5.2 - Iterative Workload Analysis
+**Tag:** `v5.2-iterative-workload`
+**Branch:** `feat/7-iterative-test`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented a test to run the `GpuTreeReduceTask` 100 times in a loop.
+* Added a `reset()` method to repopulate the input buffer, simulating a real-world iterative workload.
+
+**Performance Result (N=1M, 100 Iterations):**
+* **Total Loop Time:** 388,811 µs
+* **Average Time per Iteration:** ~3,888 µs
+* **Average GPU Time (`dispatch()`):** 1,243 µs
+* **Average CPU Time (`reset()`):** ~2,645 µs
+
+**Key Insight:**
+* Successfully quantified the "hybrid model" cost. In this iterative workload, the **CPU is the bottleneck**, not the GPU. The app spends 68% of its time (`2645 / 3888`) in the `reset()` function, waiting for the CPU to map memory and fill the buffer for the next pass.
+
+**Next Step:**
+* Implement the `allreduce` collective (Objective 1).
