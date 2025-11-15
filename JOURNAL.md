@@ -115,3 +115,37 @@
 
 **Conclusion:**
 The project is a success. We've proven that for a 1M element reduction, the GPU on the Pixel 10 Pro is **2.9 times faster** than its multi-core CPU. We also identified that the CPU stall time (`vkQueueWaitIdle`) accounts for nearly 50% of the perceived "GPU time" when measured from the CPU.
+
+## 2025-11-15: Phase 5.1 - Variable Size Analysis
+**Tag:** `v5.1-variable-size-analysis`
+**Branch:** `feat/6-variable-size`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented a warmup loop to get stable, "warmed-up" performance.
+* Refactored both `CpuReduceTask` and `GpuTreeReduceTask` to accept a variable problem size `N`.
+* Ran a full benchmark on 10 data points from N=256 to N=1,048,576.
+
+**Final Data Table (Warmed Up):**
+
+| Elements (N) | CPU Time (µs) | Total GPU Time (µs) | GPU Speedup |
+| :--- | :--- | :--- | :--- |
+| 256 | 8,144 | 1,816 | 4.5x |
+| 1,024 | 7,324 | 605 | 12.1x |
+| 4,096 | 5,964 | 1,057 | 5.6x |
+| 16,384 | 6,137 | 615 | 10.0x |
+| 32,768 | 6,619 | 632 | 10.5x |
+| 65,536 | 2,481 | 656 | 3.8x |
+| 131,072 | 4,793 | 695 | 6.9x |
+| 262,144 | 8,296 | 927 | 8.9x |
+| 524,288 | 9,624 | 1,309 | 7.4x |
+| 1,048,576 | 9,251 | 1,633 | 5.7x |
+
+**Key Insights:**
+1.  **Crossover Point:** The hypothesis of a crossover was disproven. The GPU is significantly faster than the CPU at *all* tested sizes, even for N=256.
+2.  **Bottleneck:** The GPU time is nearly flat from N=1k to N=131k. This proves the workload is **synchronization-bound (barrier-bound)**, not compute-bound. The fixed cost of the multiple dispatches dominates the runtime.
+3.  **Profiling Tool:** The `vkCmdWriteTimestamp` query results were confirmed to be unreliable on this device, returning `0.0` or repeating values. The `CPU-side timer (incl. stall)` is the correct and reliable metric for this hardware.
+
+**Next Step:**
+* Analyze the iterative workload (Objective 2).
