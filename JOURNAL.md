@@ -16,3 +16,27 @@
 
 **Next Step:**
 * Define the C++ class architecture (Singleton, Strategy) for our compute tasks.
+
+# GPGPU Compute Project Journal
+
+## 2025-11-15: Phase 1 - Vector Add (v1.0)
+**Tag:** `v1.0-phase1-vector-add`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented the full Vulkan compute pipeline using the OOP architecture (Singleton, Strategy).
+* **Pivoted on shader compilation:** Bypassed complex build-time and runtime compilation by manually compiling the shader on the terminal.
+* **New Workflow:**
+    1.  Write shader (`vector_add.comp`).
+    2.  Manually compile: `glslc vector_add.comp -o vector_add.spv`
+    3.  Copy the `.spv` file to the app's `assets/shaders/` directory.
+    4.  C++ code now loads the `.spv` *bytecode* from assets, bypassing `shaderc`.
+* **Result:** App successfully runs the "Vector Add" task on the Pixel 10 Pro GPU.
+
+**Key Learnings:**
+* NDK build system for shaders (glslc path, Prefab, find_package) is extremely brittle.
+* Manually compiling to `.spv` is a stable, simple, and effective solution for this project.
+
+**Next Step:**
+* Implement Phase 2 (Single-Workgroup Reduction) using this new manual-compile workflow.

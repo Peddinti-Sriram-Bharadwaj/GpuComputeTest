@@ -1,34 +1,60 @@
 package com.example.gpucomputetest
 
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.widget.TextView
-import com.example.gpucomputetest.databinding.ActivityMainBinding
+import android.content.res.AssetManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text // Keep Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+// DELETED: import com.example.gpucomputetest.ui.theme.GpuComputeTestTheme
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    private lateinit var binding: ActivityMainBinding
+    // --- Native (JNI) Functions ---
+    private external fun initJNI(assetManager: AssetManager)
+    private external fun stringFromJNI(): String
+    private external fun cleanup()
 
+    // --- Activity Lifecycle ---
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        initJNI(assets)
+        val computeResult = stringFromJNI()
 
-        // Example of a call to a native method
-        binding.sampleText.text = stringFromJNI()
+        // --- SIMPLIFIED setContent ---
+        setContent {
+            // No theme or surface needed, just show the text
+            Greeting(computeResult)
+        }
     }
 
-    /**
-     * A native method that is implemented by the 'gpucomputetest' native library,
-     * which is packaged with this application.
-     */
-    external fun stringFromJNI(): String
+    override fun onDestroy() {
+        super.onDestroy()
+        cleanup()
+    }
 
     companion object {
-        // Used to load the 'gpucomputetest' library on application startup.
         init {
             System.loadLibrary("gpucomputetest")
         }
+    }
+}
+
+// --- Composable UI ---
+@Composable
+fun Greeting(message: String, modifier: Modifier = Modifier) {
+    // We use a simple Box to center the text on the screen
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = message
+        )
     }
 }

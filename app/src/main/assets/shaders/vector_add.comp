@@ -1,0 +1,27 @@
+#version 450
+
+// We'll run 256 threads per workgroup
+layout (local_size_x = 256) in;
+
+// Our data buffers, bound by the C++ code
+layout(set = 0, binding = 0) readonly buffer BufferA {
+    float data[];
+} inA;
+
+layout(set = 0, binding = 1) readonly buffer BufferB {
+    float data[];
+} inB;
+
+layout(set = 0, binding = 2) writeonly buffer BufferC {
+    float data[];
+} outC;
+
+void main() {
+    // Find out which thread this is, globally
+    uint index = gl_GlobalInvocationID.x;
+
+    // Perform the vector addition
+    // We assume the C++ code launches enough workgroups
+    // to cover all elements.
+    outC.data[index] = inA.data[index] + inB.data[index];
+}
