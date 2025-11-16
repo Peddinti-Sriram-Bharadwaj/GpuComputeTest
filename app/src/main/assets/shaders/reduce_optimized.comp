@@ -1,0 +1,85 @@
+#version 450
+
+layout (local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer InBuffer {
+    float data[];
+} inBuffer;
+
+layout(set = 0, binding = 1) writeonly buffer OutBuffer {
+    float data[];
+} outBuffer;
+
+// This is the SAME push constant as before
+layout(push_constant) uniform PushData {
+// 0 = Local Reduce (Pass 1)
+// 1 = Tree Reduce (Pass 2...N)
+    uint passType;
+    uint numElements;
+} pushData;
+
+shared float localSums[256];
+
+void main() {
+    uint globalId = gl_GlobalInvocationID.x;
+    uint localId = gl_LocalInvocationID.x;
+    uint workgroupId = gl_WorkGroupID.x;
+
+    // --- PASS 1: LOCAL REDUCE ---
+    // (This is UNCHANGED from our last shader)
+    if (pushData.passType == 0) {
+        uint dataIndex = workgroupId * 256 + localId;
+
+        if (dataIndex < pushData.numElements) {
+            localSums[localId] = inBuffer.data[dataIndex];
+        } else {
+            localSums[localId] = 0.0;
+        }
+
+        barrier();
+
+        for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+            if (localId < s) {
+                localSums[localId] += localSums[localId + s];
+            }
+            barrier();
+        }
+
+        if (localId == 0) {
+            outBuffer.data[workgroupId] = localSums[0];
+        }
+    }
+
+    // --- PASS 2...N: OPTIMIZED TREE REDUCE ---
+    // (This is the NEW "geeky" part)
+    else if (pushData.passType == 1) {
+
+        // This is the same logic as Pass 1, but we
+        // are reading from the output of the *previous* pass.
+        // Each workgroup will reduce 256 partial sums
+        // down to 1.
+
+        uint dataIndex = workgroupId * 256 + localId;
+
+        if (dataIndex < pushData.numElements) {
+            localSums[localId] = inBuffer.data[dataIndex];
+        } else {
+            localSums[localId] = 0.0; // Neutral element
+        }
+
+        barrier();
+
+        // Parallel reduction in shared memory
+        for (uint s = gl_WorkGroupSize.x / 2; s > 0; s >>= 1) {
+            if (localId < s) {
+                localSums[localId] += localSums[localId + s];
+            }
+            barrier();
+        }
+
+        // Thread 0 writes the *new* partial sum
+        if (localId == 0) {
+            outBuffer.data[workgroupId] = localSums[0];
+        }
+    }
+}

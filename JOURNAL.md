@@ -169,3 +169,36 @@ The project is a success. We've proven that for a 1M element reduction, the GPU 
 
 **Next Step:**
 * Implement the `allreduce` collective (Objective 1).
+
+## 2025-11-16: Phase 6 - GPU Optimization & Final Benchmark (v6.0)
+**Tag:** `v6.0-gpu-optimization`
+**Branch:** `feat/9-gpu-optimization`
+
+**Status:** Completed.
+
+**What I did:**
+* Implemented the **3-Pass Optimized Reduction Shader** (`reduce_optimized.comp`) to aggressively reduce synchronization overhead. (Collapsed 13 passes/12 barriers down to 3 passes/2 barriers).
+* Created the `GpuOptimizedReduceTask` class to utilize the new shader.
+* Refactored `native-lib.cpp` to print a single, clean CSV table of the final results.
+
+**Key Optimization Insight:**
+* **Optimization Success:** The 3-pass approach reduced the runtime for N=1M from 1,633 µs (un-optimized) to **1,420 µs** (optimized), confirming the barrier reduction strategy yielded a **15% performance gain**.
+* **Performance Trade-off:** The optimized shader was slower for small data (N<64k), highlighting the trade-off between complex shared memory patterns (fast compute) and launching too many micro-barriers (slow sync).
+
+**Final Optimized Data (μs):**
+| N | CPU | GPU (Opt) |
+| :--- | :--- | :--- |
+| 256 | 1,552 | 566 |
+| 1,024 | 780 | 605 |
+| 4,096 | 858 | 540 |
+| 16,384 | 877 | 644 |
+| 32,768 | 1,849 | 589 |
+| 65,536 | 2,109 | 569 |
+| 131,072 | 863 | 824 |
+| 262,144 | 1,489 | 896 |
+| 524,288 | 1,893 | 979 |
+| 1,048,576 | 3,450 | 1,420 |
+
+**Next Step:**
+* **Geeky Deep-Dive:** Query and analyze hardware limits (Max Workgroup Size, Shared Memory) to infer performance capabilities.
+

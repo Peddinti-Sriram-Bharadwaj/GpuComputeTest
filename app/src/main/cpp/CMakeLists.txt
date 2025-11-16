@@ -64,6 +64,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         LocalReduceTask.cpp
         CpuReduceTask.cpp
         GpuTreeReduceTask.cpp
+        GpuOptimizedReduceTask.cpp
         
 
         # Your C++ header files (for IDE visibility)
@@ -74,6 +75,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         LocalReduceTask.h
         CpuReduceTask.h
         GpuTreeReduceTask.h
+        GpuOptimizedReduceTask.h
+
 )
 
 # --- 4. Configure Target Properties ---

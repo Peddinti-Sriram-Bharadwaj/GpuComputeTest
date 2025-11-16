@@ -116,6 +116,8 @@ void VulkanContext::pickPhysicalDevice() {
         LOGW("GPU timestamp support NOT found. Profiling will be 0.");
         m_timestampPeriod = 0.0f;
     }
+
+
     // --- END OF BLOCK ---
 }
 
